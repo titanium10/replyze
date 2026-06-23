@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Replyze — Reply to every customer in seconds.</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Syne:wght@700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #07090f;
+      --surface: #0e1118;
+      --border: #1a1d2e;
+      --accent: #3b82f6;
+      --accent-dim: #1e3a5f;
+      --accent-glow: rgba(59,130,246,0.25);
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --green: #22c55e;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── NAV ── */
+    nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1.25rem 2rem;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      background: rgba(7,9,15,0.88);
+      backdrop-filter: blur(14px);
+      z-index: 100;
+    }
+
+    .logo {
+      font-family: 'Syne', sans-serif;
+      font-weight: 800;
+      font-size: 1.35rem;
+      color: var(--text);
+      text-decoration: none;
+      letter-spacing: -0.02em;
+    }
+
+    .logo span { color: var(--accent); }
+
+    .nav-right { display: flex; align-items: center; gap: 1rem; }
+
+    .nav-price {
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    nav a.cta-nav {
+      background: var(--accent);
+      color: #fff;
+      padding: 0.5rem 1.25rem;
+      border-radius: 6px;
+      text-decoration: none;
+      font-size: 0.875rem;
+      font-weight: 600;
+      transition: opacity 0.15s;
+    }
+
+    nav a.cta-nav:hover { opacity: 0.85; }
+
+    /* ── HERO ── */
+    .hero {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 7rem 2rem 4rem;
+      text-align: center;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: rgba(59,130,246,0.1);
+      border: 1px solid var(--accent-dim);
+      color: #93c5fd;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 0.35rem 0.9rem;
+      border-radius: 100px;
+      margin-bottom: 2rem;
+    }
+
+    h1 {
+      font-family: 'Syne', sans-serif;
+      font-size: clamp(2.2rem, 5.5vw, 3.75rem);
+      font-weight: 800;
+      line-height: 1.08;
+      letter-spacing: -0.03em;
+      margin-bottom: 1.25rem;
+    }
+
+    h1 em {
+      font-style: normal;
+      color: var(--accent);
+    }
+
+    .sub {
+      font-size: 1.05rem;
+      color: var(--muted);
+      line-height: 1.7;
+      max-width: 500px;
+      margin: 0 auto 2.5rem;
+    }
+
+    .hero-cta {
+      display: inline-block;
+      background: var(--accent);
+      color: #fff;
+      padding: 0.95rem 2.5rem;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: transform 0.15s, box-shadow 0.15s;
+      box-shadow: 0 0 36px var(--accent-glow);
+    }
+
+    .hero-cta:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 0 56px rgba(59,130,246,0.4);
+    }
+
+    .hero-note { margin-top: 0.9rem; font-size: 0.78rem; color: var(--muted); }
+
+    /* ── PLATFORMS ── */
+    .platforms {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-top: 3rem;
+    }
+
+    .platform-pill {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 100px;
+      padding: 0.4rem 1rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    /* ── DEMO ── */
+    .demo {
+      max-width: 860px;
+      margin: 4rem auto 5rem;
+      padding: 0 2rem;
+    }
+
+    .demo-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+
+    .demo-bar {
+      background: #090b12;
+      padding: 0.75rem 1rem;
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .dot { width: 10px; height: 10px; border-radius: 50%; }
+    .dot-r { background: #ff5f57; }
+    .dot-y { background: #febc2e; }
+    .dot-g { background: #28c840; }
+
+    .demo-body {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: start;
+    }
+
+    .demo-col { padding: 1.75rem; }
+
+    .demo-col:first-child { border-right: 1px solid var(--border); }
+
+    .demo-arrow {
+      padding: 1.75rem 0.5rem;
+      color: var(--accent);
+      font-size: 1.5rem;
+      align-self: center;
+    }
+
+    .demo-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+
+    .review-bubble {
+      background: #0a0c14;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem;
+      font-size: 0.82rem;
+      color: #94a3b8;
+      line-height: 1.65;
+    }
+
+    .stars { color: #f59e0b; margin-bottom: 0.5rem; font-size: 0.9rem; }
+
+    .reply-bubble {
+      background: rgba(59,130,246,0.07);
+      border: 1px solid var(--accent-dim);
+      border-radius: 10px;
+      padding: 1rem;
+      font-size: 0.82rem;
+      color: #bfdbfe;
+      line-height: 1.65;
+    }
+
+    .reply-tag {
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 0.5rem;
+    }
+
+    @media (max-width: 600px) {
+      .demo-body { grid-template-columns: 1fr; }
+      .demo-col:first-child { border-right: none; border-bottom: 1px solid var(--border); }
+      .demo-arrow { display: none; }
+    }
+
+    /* ── HOW IT WORKS ── */
+    .how {
+      max-width: 820px;
+      margin: 0 auto 6rem;
+      padding: 0 2rem;
+    }
+
+    .section-label {
+      text-align: center;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 3rem;
+    }
+
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.5rem;
+    }
+
+    @media (max-width: 600px) { .steps { grid-template-columns: 1fr; } }
+
+    .step {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.5rem;
+    }
+
+    .step-num {
+      font-family: 'Syne', sans-serif;
+      font-size: 1.8rem;
+      font-weight: 800;
+      color: var(--accent-dim);
+      margin-bottom: 0.75rem;
+    }
+
+    .step h3 { font-size: 0.92rem; font-weight: 600; margin-bottom: 0.4rem; }
+    .step p { font-size: 0.8rem; color: var(--muted); line-height: 1.6; }
+
+    /* ── PRICING ── */
+    .pricing {
+      max-width: 460px;
+      margin: 0 auto 6rem;
+      padding: 0 2rem;
+      text-align: center;
+    }
+
+    .pricing h2 {
+      font-family: 'Syne', sans-serif;
+      font-size: 1.75rem;
+      font-weight: 800;
+      margin-bottom: 2rem;
+    }
+
+    .price-card {
+      background: var(--surface);
+      border: 1px solid var(--accent-dim);
+      border-radius: 14px;
+      padding: 2rem;
+      box-shadow: 0 0 50px rgba(59,130,246,0.08);
+    }
+
+    .price-tag {
+      font-family: 'Syne', sans-serif;
+      font-size: 3rem;
+      font-weight: 800;
+    }
+
+    .price-tag span { font-size: 1rem; font-weight: 500; color: var(--muted); }
+
+    .price-features {
+      list-style: none;
+      margin: 1.5rem 0;
+      text-align: left;
+    }
+
+    .price-features li {
+      padding: 0.45rem 0;
+      font-size: 0.875rem;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .price-features li::before { content: '✓'; color: var(--green); font-weight: 700; flex-shrink: 0; }
+
+    .price-cta {
+      display: block;
+      background: var(--accent);
+      color: #fff;
+      padding: 0.85rem;
+      border-radius: 7px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: opacity 0.15s;
+    }
+
+    .price-cta:hover { opacity: 0.85; }
+
+    /* ── FOOTER ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 1.5rem 2rem;
+      text-align: center;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <a class="logo" href="/">Reply<span>ze</span></a>
+    <div class="nav-right">
+      <span class="nav-price" id="nav-price">$19/mo</span>
+      <a class="cta-nav" href="/app">Try free →</a>
+    </div>
+  </nav>
+
+  <section class="hero">
+    <div class="badge">⚡ AI-powered · Works in 5 seconds</div>
+    <h1>Reply to every customer.<br /><em>Instantly.</em></h1>
+    <p class="sub">
+      Paste any review, WhatsApp message, or comment. Replyze writes a perfect, human-sounding reply in seconds — so you never leave a customer waiting.
+    </p>
+    <a class="hero-cta" href="/app">Generate 3 free replies →</a>
+    <p class="hero-note">No account needed. No credit card.</p>
+
+    <div class="platforms">
+      <div class="platform-pill">⭐ Google Reviews</div>
+      <div class="platform-pill">💬 WhatsApp</div>
+      <div class="platform-pill">📸 Instagram</div>
+      <div class="platform-pill">👍 Facebook</div>
+    </div>
+  </section>
+
+  <div class="demo">
+    <div class="demo-card">
+      <div class="demo-bar">
+        <div class="dot dot-r"></div>
+        <div class="dot dot-y"></div>
+        <div class="dot dot-g"></div>
+      </div>
+      <div class="demo-body">
+        <div class="demo-col">
+          <div class="demo-label">Customer review</div>
+          <div class="review-bubble">
+            <div class="stars">★★★☆☆</div>
+            Food was okay but service was really slow. Waited 40 minutes for our order. The pizza was good though. Might come back but hope the service improves.
+          </div>
+        </div>
+        <div class="demo-arrow">→</div>
+        <div class="demo-col">
+          <div class="demo-label">Replyze generates →</div>
+          <div class="reply-bubble">
+            <div class="reply-tag">Your reply · 5 seconds</div>
+            Thank you for visiting and for the honest feedback! We sincerely apologize for the long wait — that's not the experience we want for our guests. We're actively working on improving our service speed. We're glad you enjoyed the pizza, and we hope to earn back a 5-star visit from you soon. Please ask for the manager on your next visit — we'd love to make it right.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <section class="how">
+    <div class="section-label">How it works</div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">01</div>
+        <h3>Paste the message</h3>
+        <p>Review, WhatsApp message, Instagram comment — anything a customer sent you.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">02</div>
+        <h3>Pick your tone</h3>
+        <p>Professional, friendly, or apologetic. Replyze matches the mood.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">03</div>
+        <h3>Copy and send</h3>
+        <p>One click to copy. Paste it wherever you need. Done in under 10 seconds.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="pricing">
+    <h2>One simple price</h2>
+    <div class="price-card">
+      <div class="price-tag" id="price-tag">$19 <span>/ month</span></div>
+      <ul class="price-features">
+        <li>Unlimited replies — all platforms</li>
+        <li>Google, WhatsApp, Instagram, Facebook</li>
+        <li>3 tone options per reply</li>
+        <li>Custom business name in every reply</li>
+        <li>Cancel anytime</li>
+      </ul>
+      <a class="price-cta" href="/app">Start with 3 free replies →</a>
+    </div>
+  </section>
+
+  <footer>
+    Built by Samrat &nbsp;·&nbsp; Replyze © 2025
+  </footer>
+
+  <script>
+    // PPP Pricing — detects country via free IP API, shows local price
+    const pricing = {
+      IN: { amount: '₹299',  label: '/ month', note: 'India pricing' },
+      KR: { amount: '₩9,900', label: '/ month', note: 'Korea pricing' },
+      GB: { amount: '£15',   label: '/ month', note: 'UK pricing' },
+      AU: { amount: 'A$28',  label: '/ month', note: 'Australia pricing' },
+      SG: { amount: 'S$25',  label: '/ month', note: 'Singapore pricing' },
+      PH: { amount: '₱299',  label: '/ month', note: 'Philippines pricing' },
+      BR: { amount: 'R$49',  label: '/ month', note: 'Brazil pricing' },
+      DE: { amount: '€17',   label: '/ month', note: 'Germany pricing' },
+      FR: { amount: '€17',   label: '/ month', note: 'France pricing' },
+      CA: { amount: 'C$25',  label: '/ month', note: 'Canada pricing' },
+      JP: { amount: '¥2,200',label: '/ month', note: 'Japan pricing' },
+      NG: { amount: '₦4,999',label: '/ month', note: 'Nigeria pricing' },
+      PK: { amount: '₨999', label: '/ month', note: 'Pakistan pricing' },
+      BD: { amount: '৳499',  label: '/ month', note: 'Bangladesh pricing' },
+    };
+
+    async function detectAndSetPrice() {
+      try {
+        // Free IP geolocation — no key needed
+        const res = await fetch('https://ipapi.co/json/');
+        const data = await res.json();
+        const country = data.country_code;
+        const p = pricing[country];
+
+        if (p) {
+          // Update nav price
+          document.getElementById('nav-price').textContent = p.amount + '/mo';
+          // Update pricing card
+          document.getElementById('price-tag').innerHTML =
+            `${p.amount} <span>${p.label}</span>`;
+        }
+        // If country not in list, keep default $19
+      } catch (e) {
+        // On error, silently keep default $19
+      }
+    }
+
+    detectAndSetPrice();
+  </script>
+
+</body>
+</html>
