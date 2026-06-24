@@ -1,11 +1,14 @@
 import os
-import sqlite3
-from datetime import datetime
+import re
+from datetime import datetime, timedelta
 from functools import wraps
+from contextlib import contextmanager
 
+import psycopg2
+import psycopg2.extras
 from flask import (
     Flask, render_template, request, jsonify,
-    session, redirect, url_for, flash
+    session, redirect, url_for, flash, make_response
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 from authlib.integrations.flask_client import OAuth
@@ -13,11 +16,10 @@ import anthropic
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-in-production")
+app.permanent_session_lifetime = timedelta(days=30)
 
-# ── Anthropic client ──
 client = anthropic.Anthropic()
 
-# ── Google OAuth ──
 oauth = OAuth(app)
 google = oauth.register(
     name="google",
@@ -28,38 +30,55 @@ google = oauth.register(
 )
 
 FREE_USES = 3
-DB_PATH = "replyze.db"
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 
-# ── Database setup ──
+@contextmanager
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def init_db():
-    with get_db() as db:
-        db.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                email TEXT UNIQUE NOT NULL,
-                name TEXT,
-                password_hash TEXT,
-                google_id TEXT,
-                uses INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        db.commit()
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    email TEXT UNIQUE NOT NULL,
+                    name TEXT,
+                    password_hash TEXT,
+                    google_id TEXT,
+                    uses INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS reply_history (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                    message TEXT,
+                    reply TEXT,
+                    platform TEXT DEFAULT 'google',
+                    language TEXT DEFAULT 'english',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
 
 init_db()
 
 
 # ── Auth helpers ──
+
 def login_required(f):
-    """Decorator — redirects to login if not authenticated."""
     @wraps(f)
     def decorated(*args, **kwargs):
         if "user_id" not in session:
@@ -71,11 +90,28 @@ def login_required(f):
 def get_current_user():
     if "user_id" not in session:
         return None
-    with get_db() as db:
-        return db.execute("SELECT * FROM users WHERE id = ?", (session["user_id"],)).fetchone()
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM users WHERE id = %s", (session["user_id"],))
+            return cur.fetchone()
 
 
-# ── Routes ──
+# ── PWA static routes ──
+
+@app.route("/manifest.json")
+def manifest():
+    return app.send_static_file("manifest.json")
+
+
+@app.route("/service-worker.js")
+def service_worker():
+    resp = make_response(app.send_static_file("service-worker.js"))
+    resp.headers["Content-Type"] = "application/javascript"
+    resp.headers["Service-Worker-Allowed"] = "/"
+    return resp
+
+
+# ── Page routes ──
 
 @app.route("/")
 def index():
@@ -92,14 +128,15 @@ def editor():
 
 
 # ── Signup ──
+
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
     if "user_id" in session:
         return redirect(url_for("editor"))
 
     if request.method == "POST":
-        email = request.form.get("email", "").strip().lower()
-        name  = request.form.get("name", "").strip()
+        email    = request.form.get("email", "").strip().lower()
+        name     = request.form.get("name", "").strip()
         password = request.form.get("password", "")
 
         if not email or not password or not name:
@@ -111,16 +148,17 @@ def signup():
             return render_template("signup.html")
 
         try:
-            with get_db() as db:
-                db.execute(
-                    "INSERT INTO users (email, name, password_hash) VALUES (?, ?, ?)",
-                    (email, name, generate_password_hash(password))
-                )
-                db.commit()
-                user = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
-                session["user_id"] = user["id"]
-                return redirect(url_for("editor"))
-        except sqlite3.IntegrityError:
+            with get_db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO users (email, name, password_hash) VALUES (%s, %s, %s) RETURNING id",
+                        (email, name, generate_password_hash(password))
+                    )
+                    user_id = cur.fetchone()["id"]
+            session["user_id"] = user_id
+            session.permanent = True
+            return redirect(url_for("editor"))
+        except psycopg2.IntegrityError:
             flash("An account with that email already exists.", "error")
             return render_template("signup.html")
 
@@ -128,6 +166,7 @@ def signup():
 
 
 # ── Login ──
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if "user_id" in session:
@@ -137,20 +176,24 @@ def login():
         email    = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
 
-        with get_db() as db:
-            user = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM users WHERE email = %s", (email,))
+                user = cur.fetchone()
 
         if not user or not user["password_hash"] or not check_password_hash(user["password_hash"], password):
             flash("Incorrect email or password.", "error")
             return render_template("login.html")
 
         session["user_id"] = user["id"]
+        session.permanent = True
         return redirect(url_for("editor"))
 
     return render_template("login.html")
 
 
 # ── Google OAuth ──
+
 @app.route("/login/google")
 def login_google():
     redirect_uri = url_for("google_callback", _external=True)
@@ -159,36 +202,34 @@ def login_google():
 
 @app.route("/login/google/callback")
 def google_callback():
-    token = google.authorize_access_token()
+    token     = google.authorize_access_token()
     user_info = token.get("userinfo")
-
     email     = user_info["email"].lower()
     name      = user_info.get("name", email.split("@")[0])
     google_id = user_info["sub"]
 
-    with get_db() as db:
-        user = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM users WHERE email = %s", (email,))
+            user = cur.fetchone()
+            if user:
+                if not user["google_id"]:
+                    cur.execute("UPDATE users SET google_id = %s WHERE id = %s", (google_id, user["id"]))
+                user_id = user["id"]
+            else:
+                cur.execute(
+                    "INSERT INTO users (email, name, google_id) VALUES (%s, %s, %s) RETURNING id",
+                    (email, name, google_id)
+                )
+                user_id = cur.fetchone()["id"]
 
-        if user:
-            # Update google_id if not set
-            if not user["google_id"]:
-                db.execute("UPDATE users SET google_id = ? WHERE id = ?", (google_id, user["id"]))
-                db.commit()
-        else:
-            # Create new user
-            db.execute(
-                "INSERT INTO users (email, name, google_id) VALUES (?, ?, ?)",
-                (email, name, google_id)
-            )
-            db.commit()
-            user = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
-
-        session["user_id"] = user["id"]
-
+    session["user_id"] = user_id
+    session.permanent = True
     return redirect(url_for("editor"))
 
 
 # ── Logout ──
+
 @app.route("/logout")
 def logout():
     session.clear()
@@ -196,6 +237,7 @@ def logout():
 
 
 # ── API: uses left ──
+
 @app.route("/api/uses-left")
 @login_required
 def uses_left():
@@ -204,13 +246,64 @@ def uses_left():
     return jsonify({"uses_left": left, "free_total": FREE_USES})
 
 
+# ── API: reply history ──
+
+@app.route("/api/history")
+@login_required
+def get_history():
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, message, reply, platform, language, created_at
+                FROM reply_history
+                WHERE user_id = %s
+                ORDER BY created_at DESC
+                LIMIT 10
+            """, (session["user_id"],))
+            rows = cur.fetchall()
+
+    history = [
+        {
+            "id": r["id"],
+            "message_preview": (r["message"] or "")[:70],
+            "reply_preview": (r["reply"] or "")[:70],
+            "full_reply": r["reply"] or "",
+            "platform": r["platform"] or "google",
+            "language": r["language"] or "english",
+            "created_at": r["created_at"].strftime("%-d %b, %I:%M %p") if r["created_at"] else "",
+        }
+        for r in rows
+    ]
+    return jsonify({"history": history})
+
+
+# ── Helpers ──
+
+def detect_email(text):
+    """True if the pasted text looks like an email (has common email headers)."""
+    return bool(re.search(r'(?i)^(from|to|subject|date|cc|bcc)\s*:', text, re.MULTILINE))
+
+
+def tone_description(value):
+    """Convert 0-100 slider value to a tone description for the prompt."""
+    if value <= 20:
+        return "extremely formal and corporate, using proper business language and titles"
+    if value <= 40:
+        return "professional and polished, maintaining business decorum"
+    if value <= 60:
+        return "balanced and natural, neither too formal nor too casual"
+    if value <= 80:
+        return "warm and friendly, conversational but respectful"
+    return "casual and relaxed, like texting a friend"
+
+
 # ── API: generate reply ──
+
 @app.route("/api/reply", methods=["POST"])
 @login_required
 def generate_reply():
     user = get_current_user()
 
-    # Check free limit
     if user["uses"] >= FREE_USES:
         return jsonify({
             "error": "free_limit_reached",
@@ -220,44 +313,63 @@ def generate_reply():
     data          = request.get_json()
     message       = data.get("message", "").strip()
     platform      = data.get("platform", "google").strip()
-    tone          = data.get("tone", "professional").strip()
+    language      = data.get("language", "english").strip()
+    context       = data.get("context", "").strip()
+    tone_value    = int(data.get("tone_value", 50))
+    length        = data.get("length", "medium").strip()
     business_name = data.get("business_name", "").strip()
 
     if not message:
         return jsonify({"error": "Paste the customer message first."}), 400
-
     if len(message) > 2000:
         return jsonify({"error": "Message too long. Keep it under 2000 characters."}), 400
 
-    platform_context = {
+    is_email_mode = detect_email(message) or platform == "email"
+
+    platform_ctx = {
         "google":    "This is a Google Maps review. The reply will be public.",
         "whatsapp":  "This is a WhatsApp message from a customer. Keep it conversational.",
         "instagram": "This is an Instagram comment. Keep it short and warm.",
-        "facebook":  "This is a Facebook comment or message. Professional but friendly."
+        "facebook":  "This is a Facebook comment or message. Professional but friendly.",
+        "twitter":   "This is a Twitter/X mention or DM. Keep it concise, under 280 characters.",
+        "email":     "This is a customer email. Format as a professional email reply.",
     }.get(platform, "This is a customer message.")
 
-    tone_context = {
-        "professional": "Write in a professional, polished tone.",
-        "friendly":     "Write in a warm, friendly, personal tone.",
-        "apologetic":   "The customer seems unhappy. Be apologetic and empathetic."
-    }.get(tone, "Write in a professional tone.")
+    length_map = {
+        "short":  ("under 60 words",   150),
+        "medium": ("60 to 150 words",  350),
+        "long":   ("150 to 300 words", 600),
+    }
+    length_instruction, max_tokens = length_map.get(length, length_map["medium"])
 
-    business_line = f"The business name is '{business_name}'." if business_name else "Do not mention a specific business name."
+    business_line = (
+        f"The business name is '{business_name}'." if business_name
+        else "Do not mention a specific business name."
+    )
+    context_line  = f"Extra context: {context}" if context else ""
+    lang_line     = f"Write the reply in {language.capitalize()}." if language != "english" else "Write in English."
+    email_line    = (
+        "Format your reply with 'Subject: [relevant subject line]' on line 1, blank line, then body."
+        if is_email_mode else ""
+    )
 
     prompt = f"""You are an expert customer communication specialist for small businesses.
 
 Write a perfect reply to the following customer message.
 
 Context:
-- {platform_context}
-- {tone_context}
+- {platform_ctx}
+- Tone: {tone_description(tone_value)}
+- Length: {length_instruction}
 - {business_line}
+- {lang_line}
+{context_line}
+{email_line}
 
 Rules:
-- Concise — no fluff
 - Sound human, not like a template
 - Positive review: thank them specifically
-- Negative review: acknowledge, apologize, offer to resolve
+- Negative review: acknowledge, apologise, offer to resolve
 - Question: answer helpfully
 - Output ONLY the reply text
 
@@ -269,18 +381,30 @@ Reply:"""
     try:
         response = client.messages.create(
             model="claude-haiku-4-5",
-            max_tokens=500,
+            max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}]
         )
-
         reply = response.content[0].text.strip()
 
-        # Increment user's usage count in DB
-        with get_db() as db:
-            db.execute("UPDATE users SET uses = uses + 1 WHERE id = ?", (user["id"],))
-            db.commit()
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE users SET uses = uses + 1 WHERE id = %s", (user["id"],))
+                cur.execute("""
+                    INSERT INTO reply_history (user_id, message, reply, platform, language)
+                    VALUES (%s, %s, %s, %s, %s)
+                """, (user["id"], message[:500], reply, platform, language))
+                # Keep only 10 most recent per user
+                cur.execute("""
+                    DELETE FROM reply_history
+                    WHERE user_id = %s AND id NOT IN (
+                        SELECT id FROM reply_history
+                        WHERE user_id = %s
+                        ORDER BY created_at DESC
+                        LIMIT 10
+                    )
+                """, (user["id"], user["id"]))
 
-        return jsonify({"reply": reply})
+        return jsonify({"reply": reply, "is_email": is_email_mode})
 
     except anthropic.APIError as e:
         return jsonify({"error": f"AI error: {str(e)}"}), 500
