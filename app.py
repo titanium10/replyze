@@ -1,11 +1,9 @@
 import os
 import re
+import sqlite3
 from datetime import datetime, timedelta
 from functools import wraps
-from contextlib import contextmanager
 
-import psycopg2
-import psycopg2.extras
 from flask import (
     Flask, render_template, request, jsonify,
     session, redirect, url_for, flash, make_response
@@ -30,47 +28,42 @@ google = oauth.register(
 )
 
 FREE_USES = 3
-DATABASE_URL = os.environ.get("DATABASE_URL", "")
+DB_PATH = "replyze.db"
 
 
-@contextmanager
+# ── Database ──
+
 def get_db():
-    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 def init_db():
-    with get_db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id SERIAL PRIMARY KEY,
-                    email TEXT UNIQUE NOT NULL,
-                    name TEXT,
-                    password_hash TEXT,
-                    google_id TEXT,
-                    uses INTEGER DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS reply_history (
-                    id SERIAL PRIMARY KEY,
-                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-                    message TEXT,
-                    reply TEXT,
-                    platform TEXT DEFAULT 'google',
-                    language TEXT DEFAULT 'english',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
+    with get_db() as db:
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT UNIQUE NOT NULL,
+                name TEXT,
+                password_hash TEXT,
+                google_id TEXT,
+                uses INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS reply_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER REFERENCES users(id),
+                message TEXT,
+                reply TEXT,
+                platform TEXT DEFAULT 'google',
+                language TEXT DEFAULT 'english',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        db.commit()
 
 
 init_db()
@@ -90,10 +83,8 @@ def login_required(f):
 def get_current_user():
     if "user_id" not in session:
         return None
-    with get_db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT * FROM users WHERE id = %s", (session["user_id"],))
-            return cur.fetchone()
+    with get_db() as db:
+        return db.execute("SELECT * FROM users WHERE id = ?", (session["user_id"],)).fetchone()
 
 
 # ── PWA static routes ──
@@ -148,17 +139,17 @@ def signup():
             return render_template("signup.html")
 
         try:
-            with get_db() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "INSERT INTO users (email, name, password_hash) VALUES (%s, %s, %s) RETURNING id",
-                        (email, name, generate_password_hash(password))
-                    )
-                    user_id = cur.fetchone()["id"]
+            with get_db() as db:
+                cur = db.execute(
+                    "INSERT INTO users (email, name, password_hash) VALUES (?, ?, ?)",
+                    (email, name, generate_password_hash(password))
+                )
+                user_id = cur.lastrowid
+                db.commit()
             session["user_id"] = user_id
             session.permanent = True
             return redirect(url_for("editor"))
-        except psycopg2.IntegrityError:
+        except sqlite3.IntegrityError:
             flash("An account with that email already exists.", "error")
             return render_template("signup.html")
 
@@ -176,10 +167,8 @@ def login():
         email    = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
 
-        with get_db() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT * FROM users WHERE email = %s", (email,))
-                user = cur.fetchone()
+        with get_db() as db:
+            user = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
 
         if not user or not user["password_hash"] or not check_password_hash(user["password_hash"], password):
             flash("Incorrect email or password.", "error")
@@ -208,20 +197,20 @@ def google_callback():
     name      = user_info.get("name", email.split("@")[0])
     google_id = user_info["sub"]
 
-    with get_db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT * FROM users WHERE email = %s", (email,))
-            user = cur.fetchone()
-            if user:
-                if not user["google_id"]:
-                    cur.execute("UPDATE users SET google_id = %s WHERE id = %s", (google_id, user["id"]))
-                user_id = user["id"]
-            else:
-                cur.execute(
-                    "INSERT INTO users (email, name, google_id) VALUES (%s, %s, %s) RETURNING id",
-                    (email, name, google_id)
-                )
-                user_id = cur.fetchone()["id"]
+    with get_db() as db:
+        user = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        if user:
+            if not user["google_id"]:
+                db.execute("UPDATE users SET google_id = ? WHERE id = ?", (google_id, user["id"]))
+                db.commit()
+            user_id = user["id"]
+        else:
+            cur = db.execute(
+                "INSERT INTO users (email, name, google_id) VALUES (?, ?, ?)",
+                (email, name, google_id)
+            )
+            user_id = cur.lastrowid
+            db.commit()
 
     session["user_id"] = user_id
     session.permanent = True
@@ -251,26 +240,33 @@ def uses_left():
 @app.route("/api/history")
 @login_required
 def get_history():
-    with get_db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT id, message, reply, platform, language, created_at
-                FROM reply_history
-                WHERE user_id = %s
-                ORDER BY created_at DESC
-                LIMIT 10
-            """, (session["user_id"],))
-            rows = cur.fetchall()
+    with get_db() as db:
+        rows = db.execute("""
+            SELECT id, message, reply, platform, language, created_at
+            FROM reply_history
+            WHERE user_id = ?
+            ORDER BY created_at DESC
+            LIMIT 10
+        """, (session["user_id"],)).fetchall()
+
+    def fmt_date(s):
+        if not s:
+            return ""
+        try:
+            dt = datetime.strptime(s[:19], "%Y-%m-%d %H:%M:%S")
+            return dt.strftime("%b %d, %I:%M %p")
+        except Exception:
+            return s
 
     history = [
         {
-            "id": r["id"],
+            "id":              r["id"],
             "message_preview": (r["message"] or "")[:70],
-            "reply_preview": (r["reply"] or "")[:70],
-            "full_reply": r["reply"] or "",
-            "platform": r["platform"] or "google",
-            "language": r["language"] or "english",
-            "created_at": r["created_at"].strftime("%-d %b, %I:%M %p") if r["created_at"] else "",
+            "reply_preview":   (r["reply"] or "")[:70],
+            "full_reply":      r["reply"] or "",
+            "platform":        r["platform"] or "google",
+            "language":        r["language"] or "english",
+            "created_at":      fmt_date(r["created_at"]),
         }
         for r in rows
     ]
@@ -280,12 +276,12 @@ def get_history():
 # ── Helpers ──
 
 def detect_email(text):
-    """True if the pasted text looks like an email (has common email headers)."""
+    """True if the pasted text looks like an email (contains common email headers)."""
     return bool(re.search(r'(?i)^(from|to|subject|date|cc|bcc)\s*:', text, re.MULTILINE))
 
 
 def tone_description(value):
-    """Convert 0-100 slider value to a tone description for the prompt."""
+    """Convert 0-100 slider value to a tone instruction for the prompt."""
     if value <= 20:
         return "extremely formal and corporate, using proper business language and titles"
     if value <= 40:
@@ -346,9 +342,9 @@ def generate_reply():
         f"The business name is '{business_name}'." if business_name
         else "Do not mention a specific business name."
     )
-    context_line  = f"Extra context: {context}" if context else ""
-    lang_line     = f"Write the reply in {language.capitalize()}." if language != "english" else "Write in English."
-    email_line    = (
+    context_line = f"Extra context: {context}" if context else ""
+    lang_line    = f"Write the reply in {language.capitalize()}." if language != "english" else "Write in English."
+    email_line   = (
         "Format your reply with 'Subject: [relevant subject line]' on line 1, blank line, then body."
         if is_email_mode else ""
     )
@@ -386,23 +382,22 @@ Reply:"""
         )
         reply = response.content[0].text.strip()
 
-        with get_db() as conn:
-            with conn.cursor() as cur:
-                cur.execute("UPDATE users SET uses = uses + 1 WHERE id = %s", (user["id"],))
-                cur.execute("""
-                    INSERT INTO reply_history (user_id, message, reply, platform, language)
-                    VALUES (%s, %s, %s, %s, %s)
-                """, (user["id"], message[:500], reply, platform, language))
-                # Keep only 10 most recent per user
-                cur.execute("""
-                    DELETE FROM reply_history
-                    WHERE user_id = %s AND id NOT IN (
-                        SELECT id FROM reply_history
-                        WHERE user_id = %s
-                        ORDER BY created_at DESC
-                        LIMIT 10
-                    )
-                """, (user["id"], user["id"]))
+        with get_db() as db:
+            db.execute("UPDATE users SET uses = uses + 1 WHERE id = ?", (user["id"],))
+            db.execute("""
+                INSERT INTO reply_history (user_id, message, reply, platform, language)
+                VALUES (?, ?, ?, ?, ?)
+            """, (user["id"], message[:500], reply, platform, language))
+            db.execute("""
+                DELETE FROM reply_history
+                WHERE user_id = ? AND id NOT IN (
+                    SELECT id FROM reply_history
+                    WHERE user_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT 10
+                )
+            """, (user["id"], user["id"]))
+            db.commit()
 
         return jsonify({"reply": reply, "is_email": is_email_mode})
 
