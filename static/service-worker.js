@@ -1,4 +1,4 @@
-const CACHE = 'replyze-v2';
+const CACHE = 'rellipse-v2';
 const SHELL = ['/', '/login', '/signup'];
 
 self.addEventListener('install', e => {

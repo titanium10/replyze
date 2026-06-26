@@ -14,7 +14,7 @@ from authlib.integrations.flask_client import OAuth
 import anthropic
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "replyze-secret-2025")
+app.secret_key = os.environ.get("SECRET_KEY", "rellipse-secret-2025")
 app.permanent_session_lifetime = timedelta(days=30)
 
 client = anthropic.Anthropic()
@@ -30,7 +30,7 @@ google = oauth.register(
 
 FREE_USES = 3
 ADMIN_EMAILS = ["samratdgod@gmail.com", "ncvasu@gmail.com", "nesechayas30@gsiscommunity.kr", "titanium10235@gmail.com"]
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "replyze.db")
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rellipse.db")
 
 
 # ── Database ──

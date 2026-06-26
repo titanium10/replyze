@@ -4,7 +4,6 @@
 
 ![Status](https://img.shields.io/badge/status-live-brightgreen)
 ![Python](https://img.shields.io/badge/python-3.9+-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
 
 [Live Demo](https://replyze.onrender.com/) • [GitHub](https://github.com/titanium10/replyze)
 
