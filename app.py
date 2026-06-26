@@ -29,7 +29,7 @@ google = oauth.register(
 )
 
 FREE_USES = 3
-ADMIN_EMAILS = ["samratdgod@gmail.com"]
+ADMIN_EMAILS = ["samratdgod@gmail.com", "ncvasu@gmail.com", "nesechayas30@gsiscommunity.kr", "titanium10235@gmail.com"]
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "replyze.db")
 
 
@@ -94,7 +94,22 @@ def get_current_user():
         return None
     with get_db() as db:
         row = db.execute("SELECT * FROM users WHERE id = ?", (session["user_id"],)).fetchone()
-        return dict(row) if row else None
+        if row:
+            user = dict(row)
+            # Validate session email matches to prevent session hijacking
+            session_email = session.get("_email")
+            if session_email and session_email != user["email"]:
+                session.clear()
+                return None
+            # Store email in session for validation
+            if not session_email:
+                session["_email"] = user["email"]
+                session.permanent = True
+            return user
+        else:
+            # User doesn't exist, clear session
+            session.clear()
+            return None
 
 
 # ── PWA routes ──
@@ -155,6 +170,7 @@ def signup():
                 )
                 user_id = cur.lastrowid
             session["user_id"] = user_id
+            session["_email"] = email
             session.permanent = True
             return redirect(url_for("editor"))
         except sqlite3.IntegrityError:
@@ -185,6 +201,7 @@ def login():
             return render_template("login.html", user=None)
 
         session["user_id"] = user["id"]
+        session["_email"] = user["email"]
         session.permanent = True
         return redirect(url_for("editor"))
 
@@ -222,6 +239,7 @@ def google_callback():
             user_id = cur.lastrowid
 
     session["user_id"] = user_id
+    session["_email"] = email
     session.permanent = True
     return redirect(url_for("editor"))
 
