@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="logo.svg" alt="Replyze" width="120" height="120" style="margin-bottom: 20px;">
+  <img src="logo.svg" alt="Rellipse" width="120" height="120" style="margin-bottom: 20px;">
   
-  # Replyze
+  # Rellipse
   
   **AI-powered reply generator for customer messages across all platforms**
   
