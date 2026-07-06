@@ -329,5 +329,16 @@
   }, { threshold: 0.2 });
   const statRow = document.getElementById('stat-row');
   if (statRow) statObs.observe(statRow);
+
+  // Add Nick Launches badge to footer
+  const footer = document.querySelector('footer');
+  if (footer) {
+    const badgeDiv = document.createElement('div');
+    badgeDiv.style.textAlign = 'center';
+    badgeDiv.style.marginTop = '20px';
+    badgeDiv.style.marginBottom = '20px';
+    badgeDiv.innerHTML = '<a href="https://nicklaunches.com/products/rellipse/?utm_source=replyze.onrender.com&utm_medium=badge&utm_campaign=featured" target="_blank" rel="noopener"><img src="https://nicklaunches.com/badges/featured-dark.png" alt="Rellipse on Nick Launches" width="244" height="56" /></a>';
+    footer.appendChild(badgeDiv);
+  }
 </script>
 {% endblock %}
